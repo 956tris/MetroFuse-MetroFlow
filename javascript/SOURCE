@@ -1,0 +1,5 @@
+MetroFlow JavaScript UI plugin 1.0.0
+Source: plugins/javascript/metroflow in the MetroFuse source tree.
+Project: https://github.com/956tris/MetroFuse
+License: GNU General Public License version 3; see LICENSE.
+This package contributes only an interface and uses the host player and catalog.

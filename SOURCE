@@ -1,0 +1,9 @@
+MetroFlow 1.0.0 — original MetroFuse UI plugin.
+Extracted from https://github.com/956tris/MetroFuse
+Original paths: plugins/javascript/metroflow, plugins/metroflow-native,
+scripts/test_metroflow.mjs and tooling/pack-mfp.ps1.
+The MetroFuse application is based on Metrolist. Original source attribution
+and GPL-3.0 license are retained in LICENSE and each plugin's SOURCE file.
+This repository contributes an interface using host player/catalog APIs.
+No provider implementations, service credentials, Spotify assets or sample
+catalog data are included in distributed plugins. Tests use synthetic fixtures.
