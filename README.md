@@ -1,6 +1,6 @@
 # MetroFlow for MetroFuse
 
-MetroFlow 1.0.0 is an adaptive dark music interface with green accents. It uses the MetroFuse player's real playback, library, catalog and installed-provider APIs. It supplies no music service, account credentials or fake catalog data.
+MetroFlow 1.0.0 is an adaptive music interface with a compact phone Home, quick-access cards, filtered recommendation shelves, artwork-led collection pages and an expanded player. It uses the MetroFuse player's real playback, library, catalog and installed-provider APIs. It supplies no music service, account credentials or fake catalog data.
 
 This independent repository contains the JavaScript interface in `javascript/` and Compose interface in `native/`. Both originate from [MetroFuse](https://github.com/956tris/MetroFuse); see [SOURCE](SOURCE), each plugin's provenance notice and [LICENSE](LICENSE) (GPL-3.0).
 
@@ -16,7 +16,7 @@ Download a plugin from this repository's releases, then import it through MetroF
 
 Choose either JavaScript or native MetroFlow. Keep the app's default interface available when changing plugins. Music comes from your local library and separately installed providers.
 
-The native plugin requires the matching host ABI: Kotlin 2.4.21, Compose 1.13.0-beta02 and API 1.1.0. Older MetroFuse builds without the public SDK resources cannot run this plugin. UI strings and resources are supplied by the host SDK and are not copied into the native package.
+The native plugin requires the matching host ABI: Kotlin 2.4.21, Compose 1.13.0-beta02 and API 1.1.0. Older MetroFuse builds without the public SDK resources cannot run this plugin. UI strings and resources are supplied by the host SDK and are not copied into the native package. This build also requires the host `ui.source/v1` service for the selected source and public account display name. Source and profile controls open the host settings and plugin manager. The expanded player uses the host queue, seek, previous/next, shuffle and repeat capabilities. Shuffle/repeat state and liking are not exposed by the current player API, so MetroFlow does not display a fabricated active state or a like control.
 
 ## Build
 
@@ -30,8 +30,9 @@ Build the matching MetroFuse host `:plugin-api:desktopJar` and `:plugin-sdk:desk
   '-PmetrofuseSdkJar=C:/path/to/MetroFuse/plugin-sdk/build/libs/plugin-sdk-desktop-1.1.0.jar'
 powershell -NoProfile -ExecutionPolicy Bypass -File tooling/pack-mfp.ps1 -Source javascript -Output build/outputs/plugins/metroflow.mfp
 node tests/test_metroflow.mjs
+python tests/check_native_package.py
 ```
 
 All three distributable files are written to `build/outputs/plugins/`. Native code targets JVM 21. Android packaging dexes the same plugin code for min API 24, links its plugin manifest/assets and zipaligns the unsigned container. API, SDK, Compose, coroutines and serialization dependencies are compile-only; host classes and resource catalogs are not bundled.
 
-The Node contract checks cover JavaScript paging, stale asynchronous responses, playback actions, event disposal and UI tree limits. They use synthetic test fixtures only. Native packaging checks do not replace installing and exercising the interface in the matching desktop and Android host.
+The Node contract checks cover JavaScript paging, stale asynchronous responses, playback actions, event disposal and UI tree limits. They use synthetic test fixtures only. The Python packaging check inspects APK entries and DEX class definitions to reject bundled host/runtime classes. Native packaging checks do not replace installing and exercising the interface in the matching desktop and Android host.
