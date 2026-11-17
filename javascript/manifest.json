@@ -1,7 +1,7 @@
 {
   "id": "dev.metrofuse.metroflow.javascript",
   "name": "MetroFlow · JavaScript",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "MetroFuse",
   "api": "1.1.0",
   "runtime": "javascript",

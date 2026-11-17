@@ -1,12 +1,14 @@
 # MetroFlow for MetroFuse
 
-MetroFlow 1.0.0 is an adaptive music interface with a compact phone Home, quick-access cards, filtered recommendation shelves, artwork-led collection pages and an expanded player. It uses the MetroFuse player's real playback, library, catalog and installed-provider APIs. It supplies no music service, account credentials or fake catalog data.
+MetroFlow 1.0.1 is an alternate interface for MetroFuse with navy surfaces, amber accents and artwork shelves. Desktop adds a library sidebar, a search bar, and centered playback controls. Mobile uses icon navigation, quick access cards, and a compact player. Both layouts use MetroFuse?s playback, library and catalog.
 
 This independent repository contains the JavaScript interface in `javascript/` and Compose interface in `native/`. Both originate from [MetroFuse](https://github.com/956tris/MetroFuse); see [SOURCE](SOURCE), each plugin's provenance notice and [LICENSE](LICENSE) (GPL-3.0).
 
 ## Install
 
-Use a current MetroFuse build with API 1.1.0 and the UI SDK, including its public `dev.metrofuse.sdk.resources` catalog. The Android debug application is distributed separately in the [MetroFuse releases](https://github.com/956tris/MetroFuse/releases).
+Use [MetroFuse UI SDK preview 003](https://github.com/956tris/MetroFuse/releases/tag/v10.0.0-ui-sdk-preview-003) with API 1.1.0 and the public `dev.metrofuse.sdk.resources` catalog.
+
+Version 1.0.1 needs the host artwork and UI recovery fixes released with it. Those host changes restore local cover paths, render the JavaScript typography and sidebar height, and put the original-interface shortcut in the top-right corner. The plugin leaves space for that shortcut without a blank strip below the player.
 
 Download a plugin from this repository's releases, then import it through MetroFuse Settings → Plugins and select it as the custom interface:
 

@@ -21,12 +21,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import dev.metrofuse.api.HomeItem
 import dev.metrofuse.api.NativePlugin
 import dev.metrofuse.api.NativeScreen
+import dev.metrofuse.api.PlaybackState
+import dev.metrofuse.api.Player
 import dev.metrofuse.api.PluginContext
 import dev.metrofuse.api.SearchResult
 import dev.metrofuse.api.Track
@@ -119,10 +124,11 @@ class MetroFlowPlugin : NativePlugin {
     }
 }
 
-private val ink = Color(0xFF121212)
-private val panel = Color(0xFF282828)
-private val green = Color(0xFF1ED760)
-private val muted = Color(0xFFB3B3B3)
+private val canvas = Color(0xFF0E1420)
+private val ink = Color(0xFF182232)
+private val panel = Color(0xFF273750)
+private val accent = Color(0xFFFFCB77)
+private val muted = Color(0xFFB5C4D9)
 
 private data class CollectionInfo(
     val kind: String,
@@ -146,22 +152,19 @@ private fun MetroFlow(
     ui: UiContext,
     context: PluginContext,
 ) {
-    val environment = ui.extensions as? UiArtworkEnvironment ?: return
+    val environment = checkNotNull(ui.extensions as? UiArtworkEnvironment) { "MetroFlow requires the host UI artwork environment" }
     val playback by ui.player.state.collectAsState()
     val metadata by ui.metadata.collectAsState()
     val current = if (metadata.id == playback.track.id) metadata else playback.track
     val shelves by environment.homeShelves.collectAsState(emptyList())
-    var sourceTitle by remember { mutableStateOf("") }
     var accountName by remember { mutableStateOf("") }
     LaunchedEffect(shelves) {
         try {
             val source = context.callService("ui.source/v1", buildJsonObject {})
-            sourceTitle = source["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
             accountName = source["accountName"]?.jsonPrimitive?.contentOrNull.orEmpty()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            sourceTitle = ""
             accountName = ""
         }
     }
@@ -170,6 +173,7 @@ private fun MetroFlow(
     var page by remember { mutableStateOf("home") }
     var filter by remember { mutableStateOf("all") }
     var expanded by remember { mutableStateOf(false) }
+    var nowPlayingPanel by remember { mutableStateOf(true) }
     var searchRetry by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf(SearchResult(emptyList())) }
@@ -278,102 +282,127 @@ private fun MetroFlow(
     }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
     MaterialTheme(
-        colorScheme = darkColorScheme(primary = green, onPrimary = Color.Black, background = ink, surface = ink, onSurface = Color.White),
+        colorScheme = darkColorScheme(primary = accent, onPrimary = Color.Black, background = ink, surface = ink, onSurface = Color.White),
     ) {
         Surface(Modifier.fillMaxSize(), color = ink, contentColor = Color.White) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wide = maxWidth >= 840.dp
-                Column(Modifier.fillMaxSize().padding(bottom = 48.dp)) {
-                    Row(Modifier.weight(1f)) {
+                val canShowNowPlayingPanel = maxWidth >= 1240.dp
+                Column(Modifier.fillMaxSize().background(canvas)) {
+                    if (wide) {
+                        DesktopHeader(query, accountName, { navigate("home") }, {
+                            navigate("search")
+                            query = it
+                        }, { ui.navigate("settings") }, { ui.navigate("plugins") })
+                    }
+                    Row(Modifier.weight(1f).padding(if (wide) 8.dp else 0.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (wide) {
                             Column(
                                 Modifier
-                                    .width(212.dp)
+                                    .width(248.dp)
                                     .fillMaxHeight()
-                                    .background(Color.Black)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(ink)
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(20.dp),
                             ) {
-                                Text(
-                                    stringResource(Res.string.brand),
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Navigation(page, ::navigate, true)
-                                TextButton(onClick = { ui.navigate("settings") }) { Text(stringResource(Res.string.settings)) }
-                                TextButton(onClick = { ui.navigate("plugins") }) { Text(stringResource(Res.string.plugins)) }
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        navigate("library")
+                                    },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Glyph("library", stringResource(Res.string.library), tint = muted)
+                                    Text(
+                                        stringResource(Res.string.library),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    IconButton(
+                                        onClick = { navigate("search") },
+                                    ) { Glyph("search", stringResource(Res.string.search), Modifier.size(20.dp), muted) }
+                                }
+                                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    items(library.take(30)) { track ->
+                                        Row(
+                                            Modifier.fillMaxWidth().clickable(enabled = "playTracks" in ui.player.capabilities) {
+                                                ui.player.playTracks(listOf(track))
+                                            },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement =
+                                                Arrangement.spacedBy(
+                                                    12.dp,
+                                                ),
+                                        ) {
+                                            environment.Artwork(
+                                                track.artwork,
+                                                track.title,
+                                                Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)),
+                                            )
+                                            TrackMetadata(track, Modifier.weight(1f))
+                                        }
+                                    }
+                                }
                             }
                         }
                         LazyColumn(
-                            Modifier.weight(1f).fillMaxHeight(),
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(if (wide) 8.dp else 0.dp))
+                                .background(ink),
                             contentPadding = PaddingValues(horizontal = if (wide) 28.dp else 16.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(22.dp),
                         ) {
                             item {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Surface(onClick = { ui.navigate("settings") }, shape = CircleShape, color = green) {
-                                        if (accountName.isNotBlank()) {
-                                            Text(
-                                                accountName.take(1),
-                                                Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
-                                                color = Color.Black,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        } else {
-                                            Glyph(
-                                                "profile",
-                                                stringResource(Res.string.settings),
-                                                Modifier.padding(9.dp).size(24.dp),
-                                                Color.Black,
-                                            )
+                                Row(
+                                    Modifier.fillMaxWidth().padding(end = if (wide) 0.dp else 40.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (!wide) {
+                                        Surface(onClick = { ui.navigate("settings") }, shape = CircleShape, color = accent) {
+                                            if (accountName.isNotBlank()) {
+                                                Text(
+                                                    accountName.take(1),
+                                                    Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
+                                                    color = Color.Black,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            } else {
+                                                Glyph(
+                                                    "profile",
+                                                    stringResource(Res.string.settings),
+                                                    Modifier.padding(9.dp).size(24.dp),
+                                                    Color.Black,
+                                                )
+                                            }
                                         }
                                     }
-                                    Text(
-                                        stringResource(
-                                            when (page) {
-                                                "search" -> Res.string.search
-                                                "library" -> Res.string.library
-                                                "queue" -> Res.string.queue
-                                                "collection" -> Res.string.collection
-                                                else -> Res.string.home
-                                            },
-                                        ),
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    TextButton(onClick = {
-                                        ui.navigate("plugins")
-                                    }) {
+                                    if (page == "home") {
+                                        HomeFilters(filter, { filter = it }, Modifier.weight(1f))
+                                    } else {
                                         Text(
-                                            sourceTitle.ifBlank { stringResource(Res.string.offline) },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                            stringResource(
+                                                when (page) {
+                                                    "search" -> Res.string.search
+                                                    "library" -> Res.string.library
+                                                    "queue" -> Res.string.queue
+                                                    "collection" -> Res.string.collection
+                                                    else -> Res.string.home
+                                                },
+                                            ),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f),
                                         )
                                     }
                                 }
                             }
                             when (page) {
                                 "home" -> {
-                                    item {
-                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            items(listOf("all", "track", "album", "artist", "playlist")) { kind ->
-                                                FilterChip(selected = filter == kind, onClick = { filter = kind }, label = {
-                                                    Text(
-                                                        stringResource(
-                                                            when (kind) {
-                                                                "track" -> Res.string.music
-                                                                "album" -> Res.string.albums
-                                                                "artist" -> Res.string.artists
-                                                                "playlist" -> Res.string.playlists
-                                                                else -> Res.string.all
-                                                            },
-                                                        ),
-                                                    )
-                                                })
-                                            }
-                                        }
-                                    }
                                     val filtered =
                                         shelves
                                             .map {
@@ -385,11 +414,11 @@ private fun MetroFlow(
                                                         },
                                                 )
                                             }.filter { it.items.isNotEmpty() }
-                                    val quick = filtered.flatMap { it.items }.distinctBy { it.info()?.id }.take(6)
+                                    val quick = filtered.flatMap { it.items }.distinctBy { it.info()?.id }.take(8)
                                     if (quick.isNotEmpty()) {
                                         item {
                                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                quick.chunked(if (wide) 3 else 2).forEach { row ->
+                                                quick.chunked(if (wide) 4 else 2).forEach { row ->
                                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                         row.forEach { entry ->
                                                             val info = entry.info()!!
@@ -416,7 +445,7 @@ private fun MetroFlow(
                                                                 )
                                                             }
                                                         }
-                                                        repeat((if (wide) 3 else 2) - row.size) { Spacer(Modifier.weight(1f)) }
+                                                        repeat((if (wide) 4 else 2) - row.size) { Spacer(Modifier.weight(1f)) }
                                                     }
                                                 }
                                             }
@@ -485,16 +514,12 @@ private fun MetroFlow(
                                 }
 
                                 else -> {
-                                    if (page ==
-                                        "search"
-                                    ) {
+                                    if (page == "search" && !wide) {
                                         item {
-                                            OutlinedTextField(
+                                            SearchInput(
                                                 query,
                                                 { query = it },
                                                 Modifier.fillMaxWidth(),
-                                                label = { Text(stringResource(Res.string.search)) },
-                                                singleLine = true,
                                             )
                                         }
                                     }
@@ -648,7 +673,7 @@ private fun MetroFlow(
                                                         if (track.id ==
                                                             playback.track.id
                                                         ) {
-                                                            green
+                                                            accent
                                                         } else {
                                                             Color.White
                                                         },
@@ -703,8 +728,26 @@ private fun MetroFlow(
                                 }
                             }
                         }
+                        if (wide && canShowNowPlayingPanel && nowPlayingPanel && current.id.isNotBlank()) {
+                            NowPlayingSidebar(
+                                current,
+                                playback,
+                                environment,
+                                { nowPlayingPanel = false },
+                                { expanded = true },
+                                { navigate("queue") },
+                            )
+                        }
                     }
-                    if (current.id.isNotBlank()) {
+                    if (current.id.isNotBlank() && wide) {
+                        DesktopPlayer(ui.player, playback, current, environment, {
+                            if (canShowNowPlayingPanel) {
+                                nowPlayingPanel = !nowPlayingPanel
+                            } else {
+                                expanded = true
+                            }
+                        }, { navigate("queue") })
+                    } else if (current.id.isNotBlank()) {
                         Surface(
                             modifier =
                                 Modifier
@@ -712,7 +755,7 @@ private fun MetroFlow(
                                         horizontal = 8.dp,
                                     ).fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF263B32),
+                            color = Color(0xFF304866),
                             onClick = {
                                 expanded =
                                     true
@@ -742,7 +785,7 @@ private fun MetroFlow(
                     if (!wide) Navigation(page, ::navigate, false)
                 }
                 if (expanded) {
-                    Surface(Modifier.fillMaxSize().padding(bottom = 48.dp), color = Color(0xFF152B21)) {
+                    Surface(Modifier.fillMaxSize(), color = Color(0xFF202F47)) {
                         Column(
                             Modifier.fillMaxSize().padding(horizontal = if (wide) 120.dp else 24.dp, vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -799,7 +842,7 @@ private fun MetroFlow(
                                 IconButton(onClick = ui.player::previous, enabled = "previous" in ui.player.capabilities) {
                                     Glyph("previous", stringResource(Res.string.previous), Modifier.size(32.dp))
                                 }
-                                PlayButton(playback.playing, "toggle" in ui.player.capabilities, ui.player::toggle, 64)
+                                PlayButton(playback.playing, "toggle" in ui.player.capabilities, ui.player::toggle, 64, Color.White)
                                 IconButton(onClick = ui.player::next, enabled = "next" in ui.player.capabilities) {
                                     Glyph("next", stringResource(Res.string.next), Modifier.size(32.dp))
                                 }
@@ -817,6 +860,250 @@ private fun MetroFlow(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingSidebar(
+    current: Track,
+    playback: PlaybackState,
+    environment: UiArtworkEnvironment,
+    close: () -> Unit,
+    expand: () -> Unit,
+    queue: () -> Unit,
+) {
+    LazyColumn(
+        Modifier
+            .width(280.dp)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(8.dp))
+            .background(ink),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(Res.string.now_playing),
+                    Modifier.weight(1f),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                IconButton(onClick = close) { Glyph("close", stringResource(Res.string.close_player), Modifier.size(20.dp), muted) }
+            }
+        }
+        item {
+            environment.Artwork(
+                current.artwork,
+                current.title,
+                Modifier.size(248.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = expand),
+            )
+        }
+        item { TrackMetadata(current, Modifier.fillMaxWidth(), true) }
+        if (current.album.isNotBlank()) item { Text(current.album, color = muted, style = MaterialTheme.typography.bodyMedium) }
+        val index = playback.currentIndex ?: playback.queue.indexOfFirst { it.id == playback.track.id }
+        val next = playback.queue.getOrNull(index + 1).takeIf { index >= 0 }
+        if (next != null) {
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(panel)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(Res.string.queue), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        IconButton(onClick = queue) { Glyph("queue", stringResource(Res.string.queue), Modifier.size(20.dp), muted) }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable(onClick = queue),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        environment.Artwork(next.artwork, next.title, Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)))
+                        TrackMetadata(next, Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DesktopHeader(
+    query: String,
+    accountName: String,
+    home: () -> Unit,
+    search: (String) -> Unit,
+    settings: () -> Unit,
+    plugins: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(64.dp).padding(start = 16.dp, end = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        IconButton(onClick = home) { Glyph("brand", stringResource(Res.string.brand), Modifier.size(28.dp), accent) }
+        Text(stringResource(Res.string.brand), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Surface(onClick = home, shape = RoundedCornerShape(12.dp), color = panel, modifier = Modifier.size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) { Glyph("home", stringResource(Res.string.home), Modifier.size(24.dp)) }
+        }
+        SearchInput(query, search, Modifier.width(340.dp))
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = plugins) { Glyph("settings", stringResource(Res.string.plugins), Modifier.size(20.dp), muted) }
+        Surface(onClick = settings, shape = CircleShape, color = accent, modifier = Modifier.size(36.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                if (accountName.isNotBlank()) {
+                    Text(accountName.take(1).uppercase(), color = Color.Black, fontWeight = FontWeight.Bold)
+                } else {
+                    Glyph("profile", stringResource(Res.string.settings), Modifier.size(18.dp), Color.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchInput(
+    query: String,
+    search: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(panel)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Glyph("search", stringResource(Res.string.search), tint = muted)
+        BasicTextField(
+            query,
+            search,
+            Modifier.weight(
+                1f,
+            ),
+            singleLine = true,
+            textStyle =
+                MaterialTheme.typography.bodyLarge.copy(
+                    color = Color.White,
+                ),
+            cursorBrush = SolidColor(Color.White),
+            decorationBox = { input ->
+                Box {
+                    if (query.isEmpty()) Text(stringResource(Res.string.search), color = muted)
+                    input()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun HomeFilters(
+    selected: String,
+    select: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        items(listOf("all", "track", "playlist", "album", "artist")) { kind ->
+            FilterChip(
+                selected = selected == kind,
+                onClick = { select(kind) },
+                shape = RoundedCornerShape(10.dp),
+                border = null,
+                colors =
+                    FilterChipDefaults.filterChipColors(
+                        containerColor = panel,
+                        labelColor = Color.White,
+                        selectedContainerColor = accent,
+                        selectedLabelColor = Color.Black,
+                    ),
+                label = {
+                    Text(
+                        stringResource(
+                            when (kind) {
+                                "track" -> Res.string.music
+                                "playlist" -> Res.string.playlists
+                                "album" -> Res.string.albums
+                                "artist" -> Res.string.artists
+                                else -> Res.string.all
+                            },
+                        ),
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DesktopPlayer(
+    player: Player,
+    playback: PlaybackState,
+    current: Track,
+    environment: UiArtworkEnvironment,
+    expand: () -> Unit,
+    queue: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        Row(
+            Modifier.weight(1f).clickable(onClick = expand),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            environment.Artwork(current.artwork, current.title, Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)))
+            TrackMetadata(current, Modifier.weight(1f))
+        }
+        Column(Modifier.weight(1.5f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                val controls = player as? UiPlaybackControls
+                IconButton(onClick = {
+                    controls?.toggleShuffle()
+                }, enabled = "shuffle" in player.capabilities) {
+                    Glyph(
+                        "shuffle",
+                        stringResource(Res.string.shuffle),
+                        Modifier.size(18.dp),
+                        muted,
+                    )
+                }
+                IconButton(onClick = player::previous, enabled = "previous" in player.capabilities) {
+                    Glyph("previous", stringResource(Res.string.previous), Modifier.size(20.dp), muted)
+                }
+                PlayButton(playback.playing, "toggle" in player.capabilities, player::toggle, 32, Color.White)
+                IconButton(onClick = player::next, enabled = "next" in player.capabilities) {
+                    Glyph("next", stringResource(Res.string.next), Modifier.size(20.dp), muted)
+                }
+                IconButton(onClick = {
+                    controls?.cycleRepeat()
+                }, enabled = "repeat" in player.capabilities) {
+                    Glyph(
+                        "repeat",
+                        stringResource(Res.string.repeat),
+                        Modifier.size(18.dp),
+                        muted,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(formatTime(playback.position), color = muted, style = MaterialTheme.typography.labelSmall)
+                Box(Modifier.weight(1f)) { PluginSeekBar(player) }
+                Text(formatTime(current.duration), color = muted, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = queue) { Glyph("queue", stringResource(Res.string.queue), Modifier.size(20.dp), muted) }
+            IconButton(onClick = expand) { Glyph("expand", stringResource(Res.string.now_playing), Modifier.size(20.dp), muted) }
         }
     }
 }
@@ -886,13 +1173,14 @@ private fun PlayButton(
     enabled: Boolean,
     click: () -> Unit,
     size: Int,
+    color: Color = accent,
 ) {
-    Surface(onClick = click, enabled = enabled, shape = CircleShape, color = green, modifier = Modifier.size(size.dp)) {
+    Surface(onClick = click, enabled = enabled, shape = RoundedCornerShape(14.dp), color = color, modifier = Modifier.size(size.dp)) {
         Box(contentAlignment = Alignment.Center) {
             Glyph(
                 if (playing) "pause" else "play",
                 stringResource(if (playing) Res.string.pause else Res.string.play),
-                Modifier.size(32.dp),
+                Modifier.size((size / 2).dp),
                 Color.Black,
             )
         }
@@ -932,9 +1220,40 @@ private fun Navigation(
         }
     }
     if (wide) {
-        Column { entries.forEach { entry(it, Modifier.fillMaxWidth()) } }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            entries.forEach { target ->
+                val label =
+                    stringResource(
+                        when (target) {
+                            "search" -> Res.string.search
+                            "library" -> Res.string.library
+                            else -> Res.string.home
+                        },
+                    )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (page ==
+                                target
+                            ) {
+                                panel
+                            } else {
+                                Color.Transparent
+                            },
+                        ).clickable { select(target) }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Glyph(target, label, tint = if (page == target) Color.White else muted)
+                    Text(label, fontWeight = FontWeight.Bold, color = if (page == target) Color.White else muted)
+                }
+            }
+        }
     } else {
-        Row(Modifier.fillMaxWidth().background(Color.Black)) { entries.forEach { entry(it, Modifier.weight(1f)) } }
+        Row(Modifier.fillMaxWidth().background(canvas)) { entries.forEach { entry(it, Modifier.weight(1f)) } }
     }
 }
 
@@ -952,21 +1271,82 @@ private fun Glyph(
 ) {
     val path =
         when (name) {
-            "home" -> "M12 3 2 11h3v10h5v-6h4v6h5V11h3Z"
-            "search" -> "M10 2a8 8 0 1 0 4.9 14.3L21 22l1-1-5.7-6.1A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"
-            "library" -> "M3 3h2v18H3Zm5 0h2v18H8Zm5 1 2-.5 5 17-2 .5Z"
-            "play" -> "M7 3v18l15-9Z"
-            "pause" -> "M6 4h4v16H6Zm8 0h4v16h-4Z"
-            "next" -> "M5 4v16l12-8ZM18 4h3v16h-3Z"
-            "previous" -> "M19 4v16L7 12ZM3 4h3v16H3Z"
-            "profile" -> "M12 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM3 22v-3c0-7 18-7 18 0v3Z"
-            "down" -> "m3 8 9 9 9-9-2-2-7 7-7-7Z"
-            "back" -> "m12 3 2 2-6 6h14v2H8l6 6-2 2-9-9Z"
-            "queue" -> "M3 4h18v2H3Zm0 6h18v2H3Zm0 6h12v2H3Zm14-2 6 4-6 4Z"
-            "add" -> "M11 3h2v8h8v2h-8v8h-2v-8H3v-2h8Z"
-            "shuffle" -> "M3 5h4l10 12h2v-3l5 4-5 4v-3h-3L6 7H3Zm0 12h4l3-4 2 2-4 4H3Zm10-8 3-4h3V2l5 4-5 4V7h-2l-3 4Z"
-            "repeat" -> "M5 4h13V1l5 4-5 4V6H5v5H3V6Zm14 16H6v3l-5-4 5-4v3h13v-5h2v5Z"
-            else -> "M4 3h16v18H4Zm2 2v14h12V5Zm2 3h8v2H8Zm0 5h8v2H8Z"
+            "home" -> {
+                "M12 3 2 11h3v10h5v-6h4v6h5V11h3Z"
+            }
+
+            "search" -> {
+                "M10 2a8 8 0 1 0 4.9 14.3L21 22l1-1-5.7-6.1A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"
+            }
+
+            "library" -> {
+                "M3 3h2v18H3Zm5 0h2v18H8Zm5 1 2-.5 5 17-2 .5Z"
+            }
+
+            "play" -> {
+                "M7 3v18l15-9Z"
+            }
+
+            "pause" -> {
+                "M6 4h4v16H6Zm8 0h4v16h-4Z"
+            }
+
+            "next" -> {
+                "M5 4v16l12-8ZM18 4h3v16h-3Z"
+            }
+
+            "previous" -> {
+                "M19 4v16L7 12ZM3 4h3v16H3Z"
+            }
+
+            "profile" -> {
+                "M12 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM3 22v-3c0-7 18-7 18 0v3Z"
+            }
+
+            "down" -> {
+                "m3 8 9 9 9-9-2-2-7 7-7-7Z"
+            }
+
+            "close" -> {
+                "m5 4 7 7 7-7 1 1-7 7 7 7-1 1-7-7-7 7-1-1 7-7-7-7Z"
+            }
+
+            "back" -> {
+                "m12 3 2 2-6 6h14v2H8l6 6-2 2-9-9Z"
+            }
+
+            "queue" -> {
+                "M3 4h18v2H3Zm0 6h18v2H3Zm0 6h12v2H3Zm14-2 6 4-6 4Z"
+            }
+
+            "add" -> {
+                "M11 3h2v8h8v2h-8v8h-2v-8H3v-2h8Z"
+            }
+
+            "shuffle" -> {
+                "M3 5h4l10 12h2v-3l5 4-5 4v-3h-3L6 7H3Zm0 12h4l3-4 2 2-4 4H3Zm10-8 3-4h3V2l5 4-5 4V7h-2l-3 4Z"
+            }
+
+            "repeat" -> {
+                "M5 4h13V1l5 4-5 4V6H5v5H3V6Zm14 16H6v3l-5-4 5-4v3h13v-5h2v5Z"
+            }
+
+            "expand" -> {
+                "M3 3h7v2H5v5H3Zm11 0h7v7h-2V5h-5ZM3 14h2v5h5v2H3Zm16 0h2v7h-7v-2h5Z"
+            }
+
+            "brand" -> {
+                "M3 17V7h3l6 7 6-7h3v10h-3v-6l-6 7-6-7v6Z"
+            }
+
+            "settings" -> {
+                "M10 2h4l.7 3 2 .9 2.8-.9 2 3.5-2.2 2v2.9l2.2 2-2 3.5-2.8-.9-2 .9-.7 3" +
+                    "h-4l-.7-3-2-.9-2.8.9-2-3.5 2.2-2v-2.9l-2.2-2 2-3.5 2.8.9 2-.9Zm2 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"
+            }
+
+            else -> {
+                "M4 3h16v18H4Zm2 2v14h12V5Zm2 3h8v2H8Zm0 5h8v2H8Z"
+            }
         }
     val vector =
         remember(name) {

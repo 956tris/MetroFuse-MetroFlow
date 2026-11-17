@@ -4,7 +4,7 @@ import vm from 'node:vm'
 
 // Exercise the JavaScript/host contract without requiring a platform UI.
 const source = readFileSync(new URL('../javascript/index.js', import.meta.url), 'utf8')
-const tracks = Array.from({length: 180}, (_, i) => ({id: `local:${i}`, title: `Song ${i}`, artist: 'Artist', album: '', duration: 180000, artwork: ''}))
+const tracks = Array.from({length: 180}, (_, i) => ({id: `local:${i}`, title: `Song ${i}`, artist: 'Artist', album: '', duration: 180000, artwork: i % 2 ? 'https://i.scdn.co/image/fixture' : 'file:///C:/Music/Album%20art.jpg'}))
 const actions = new Map(), events = new Map(), calls = [], pages = []
 let tree, patch, pendingSearch, disposed = 0
 const host = {
@@ -38,10 +38,19 @@ const host = {
 const context = vm.createContext({})
 vm.runInContext(source, context)
 await context.plugin.init(host)
+await new Promise(resolve => setImmediate(resolve))
+assert.equal(find(tree, 'wide-sidebar-art-0').props.url, tracks[0].artwork)
+assert.equal(find(tree, 'compact-quick-0-0-art').props.url, tracks[0].artwork)
+assert.equal(find(tree, 'compact-quick-0-0-art').props.height, '56')
+assert.equal(find(tree, 'wide-card-0-0-art').props.width, '168')
+assert.equal(find(tree, 'compact-card-0-0-art').props.width, '148')
+assert.equal(find(tree, 'wide-recovery-space'), undefined)
+assert.equal(find(tree, 'compact-recovery-space'), undefined)
+assert.equal(find(tree, 'wide-recovery-clearance').props.width, '40')
 await actions.get('page-library')()
 await actions.get('more')()
 await actions.get('back')()
-assert.deepEqual(pages, [0, 50, 0])
+assert.deepEqual(pages, [0, 0, 50, 0])
 await actions.get('page-queue')()
 function find(node, id) {
   if (node.id === id) return node
@@ -54,7 +63,9 @@ assert.deepEqual(calls.at(-1), ['seek', 90000])
 await actions.get('seek')('NaN')
 assert.equal(calls.length, 1)
 await events.get('playback_changed')({...host.playerState(), playing: true, position: 12000})
-assert.equal(patch['compact-elapsed'].text, '0:12')
+assert.equal(patch['wide-elapsed'].text, '0:12')
+assert.equal(patch['compact-toggle'].icon, 'pause')
+assert.equal(patch['compact-progress'].value, String(12000 / 180000))
 const search = actions.get('search')('slow request')
 await actions.get('page-library')()
 pendingSearch({results: {tracks: [tracks[100]]}})
@@ -67,4 +78,22 @@ assert.deepEqual(calls.at(-1), ['navigate', 'settings'])
 context.plugin.dispose()
 assert.equal(disposed, 3)
 assert.equal(events.size, 0)
-console.log('MetroFlow host contract checks passed (paging, stale responses, playback, disposal, tree limits).')
+
+// A slow provider must not hold plugin activation behind network requests.
+let finishSource, finishLibrary, startupRenders = 0
+const slowHost = {...host,
+  ui: () => { startupRenders++ },
+  call: () => new Promise(resolve => { finishSource = resolve }),
+  library: () => new Promise(resolve => { finishLibrary = resolve })
+}
+const slowContext = vm.createContext({})
+vm.runInContext(source, slowContext)
+await slowContext.plugin.init(slowHost)
+assert.ok(startupRenders > 0)
+slowContext.plugin.dispose()
+const rendersAtDispose = startupRenders
+finishSource({})
+finishLibrary(tracks)
+await new Promise(resolve => setImmediate(resolve))
+assert.equal(startupRenders, rendersAtDispose)
+console.log('MetroFlow host contract checks passed (paging, stale responses, playback, disposal, tree limits, artwork sizing, nonblocking activation).')
