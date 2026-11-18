@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,12 +17,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -47,10 +51,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -124,11 +132,11 @@ class MetroFlowPlugin : NativePlugin {
     }
 }
 
-private val canvas = Color(0xFF0E1420)
-private val ink = Color(0xFF182232)
-private val panel = Color(0xFF273750)
-private val accent = Color(0xFFFFCB77)
-private val muted = Color(0xFFB5C4D9)
+private val canvas = Color(0xFF000000)
+private val ink = Color(0xFF121212)
+private val panel = Color(0xFF282828)
+private val accent = Color(0xFF1DB954)
+private val muted = Color(0xFFB3B3B3)
 
 private data class CollectionInfo(
     val kind: String,
@@ -158,10 +166,14 @@ private fun MetroFlow(
     val current = if (metadata.id == playback.track.id) metadata else playback.track
     val shelves by environment.homeShelves.collectAsState(emptyList())
     var accountName by remember { mutableStateOf("") }
-    LaunchedEffect(shelves) {
+    var frontendId by remember { mutableStateOf("") }
+    var showFrontends by remember { mutableStateOf(false) }
+    val pluginStates by environment.pluginStates.collectAsState(emptyList())
+    LaunchedEffect(shelves, pluginStates, frontendId) {
         try {
             val source = context.callService("ui.source/v1", buildJsonObject {})
             accountName = source["accountName"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            frontendId = source["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -180,6 +192,7 @@ private fun MetroFlow(
     var offset by remember { mutableIntStateOf(0) }
     val library by remember(offset) { environment.library(offset, 100) }.collectAsState(emptyList())
     var collection by remember { mutableStateOf<CollectionInfo?>(null) }
+    var collectionOrigin by remember { mutableStateOf("home") }
     var collectionTracks by remember { mutableStateOf(emptyList<Track>()) }
     var searching by remember { mutableStateOf(false) }
     var resolving by remember { mutableStateOf(false) }
@@ -194,7 +207,7 @@ private fun MetroFlow(
     var collectionGeneration by remember { mutableIntStateOf(0) }
     var failed by remember { mutableStateOf(false) }
     var job by remember { mutableStateOf<Job?>(null) }
-    LaunchedEffect(page, query, searchRetry) {
+    LaunchedEffect(page, query, searchRetry, frontendId) {
         if (page != "search") return@LaunchedEffect
         results = SearchResult(emptyList())
         failed = false
@@ -227,6 +240,7 @@ private fun MetroFlow(
     }
 
     fun open(info: CollectionInfo) {
+        if (page != "collection") collectionOrigin = page
         val generation = ++collectionGeneration
         job?.cancel()
         collection = info
@@ -288,24 +302,32 @@ private fun MetroFlow(
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wide = maxWidth >= 840.dp
                 val canShowNowPlayingPanel = maxWidth >= 1240.dp
+                val sidebarWidth = if (maxWidth < 1100.dp) 208.dp else 248.dp
+                if (showFrontends) {
+                    FrontendPicker(context, { showFrontends = false }) { selection ->
+                        frontendId = selection.selected
+                        navigate("home")
+                    }
+                }
                 Column(Modifier.fillMaxSize().background(canvas)) {
                     if (wide) {
                         DesktopHeader(query, accountName, { navigate("home") }, {
                             navigate("search")
                             query = it
-                        }, { ui.navigate("settings") }, { ui.navigate("plugins") })
+                        }, { ui.navigate("settings") }, { showFrontends = true }, { navigate("search") })
                     }
                     Row(Modifier.weight(1f).padding(if (wide) 8.dp else 0.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (wide) {
                             Column(
                                 Modifier
-                                    .width(248.dp)
+                                    .width(sidebarWidth)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(ink)
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(20.dp),
                             ) {
+                                Navigation(page, ::navigate, true)
                                 Row(
                                     Modifier.fillMaxWidth().clickable {
                                         navigate("library")
@@ -379,6 +401,11 @@ private fun MetroFlow(
                                                     Color.Black,
                                                 )
                                             }
+                                        }
+                                    }
+                                    if (!wide) {
+                                        IconButton(onClick = { showFrontends = true }) {
+                                            Glyph("library", stringResource(Res.string.plugins), Modifier.size(20.dp), muted)
                                         }
                                     }
                                     if (page == "home") {
@@ -528,7 +555,7 @@ private fun MetroFlow(
                                             collection?.let { info ->
                                                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                                     IconButton(
-                                                        onClick = { navigate("home") },
+                                                        onClick = { navigate(collectionOrigin) },
                                                     ) { Glyph("back", stringResource(Res.string.back)) }
                                                     environment.Artwork(
                                                         info.artwork,
@@ -755,7 +782,7 @@ private fun MetroFlow(
                                         horizontal = 8.dp,
                                     ).fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF304866),
+                            color = Color(0xFF282828),
                             onClick = {
                                 expanded =
                                     true
@@ -774,7 +801,7 @@ private fun MetroFlow(
                                         stringResource(if (playback.playing) Res.string.pause else Res.string.play),
                                     )
                                 }
-                                if (wide) {
+                                if ("next" in ui.player.capabilities) {
                                     IconButton(onClick = ui.player::next, enabled = "next" in ui.player.capabilities) {
                                         Glyph("next", stringResource(Res.string.next))
                                     }
@@ -785,9 +812,9 @@ private fun MetroFlow(
                     if (!wide) Navigation(page, ::navigate, false)
                 }
                 if (expanded) {
-                    Surface(Modifier.fillMaxSize(), color = Color(0xFF202F47)) {
+                    Surface(Modifier.fillMaxSize(), color = Color(0xFF181818)) {
                         Column(
-                            Modifier.fillMaxSize().padding(horizontal = if (wide) 120.dp else 24.dp, vertical = 12.dp),
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = if (wide) 120.dp else 24.dp, vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -804,7 +831,7 @@ private fun MetroFlow(
                                     navigate("queue")
                                 }) { Glyph("queue", stringResource(Res.string.queue)) }
                             }
-                            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            BoxWithConstraints(Modifier.fillMaxWidth().widthIn(max = 440.dp).aspectRatio(1f), contentAlignment = Alignment.Center) {
                                 val artSize = minOf(maxWidth, maxHeight, 440.dp)
                                 environment.Artwork(
                                     current.artwork,
@@ -940,6 +967,7 @@ private fun DesktopHeader(
     search: (String) -> Unit,
     settings: () -> Unit,
     plugins: () -> Unit,
+    openSearch: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(64.dp).padding(start = 16.dp, end = 48.dp),
@@ -951,7 +979,7 @@ private fun DesktopHeader(
         Surface(onClick = home, shape = RoundedCornerShape(12.dp), color = panel, modifier = Modifier.size(48.dp)) {
             Box(contentAlignment = Alignment.Center) { Glyph("home", stringResource(Res.string.home), Modifier.size(24.dp)) }
         }
-        SearchInput(query, search, Modifier.width(340.dp))
+        SearchInput(query, search, Modifier.weight(1f).widthIn(max = 440.dp), openSearch)
         Spacer(Modifier.weight(1f))
         IconButton(onClick = plugins) { Glyph("settings", stringResource(Res.string.plugins), Modifier.size(20.dp), muted) }
         Surface(onClick = settings, shape = CircleShape, color = accent, modifier = Modifier.size(36.dp)) {
@@ -971,6 +999,7 @@ private fun SearchInput(
     query: String,
     search: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onFocus: () -> Unit = {},
 ) {
     Row(
         modifier
@@ -985,9 +1014,7 @@ private fun SearchInput(
         BasicTextField(
             query,
             search,
-            Modifier.weight(
-                1f,
-            ),
+            Modifier.weight(1f).onFocusChanged { if (it.isFocused) onFocus() },
             singleLine = true,
             textStyle =
                 MaterialTheme.typography.bodyLarge.copy(
@@ -1015,7 +1042,7 @@ private fun HomeFilters(
             FilterChip(
                 selected = selected == kind,
                 onClick = { select(kind) },
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 border = null,
                 colors =
                     FilterChipDefaults.filterChipColors(
@@ -1069,7 +1096,7 @@ private fun DesktopPlayer(
                 val controls = player as? UiPlaybackControls
                 IconButton(onClick = {
                     controls?.toggleShuffle()
-                }, enabled = "shuffle" in player.capabilities) {
+                }, enabled = controls != null && "shuffle" in player.capabilities) {
                     Glyph(
                         "shuffle",
                         stringResource(Res.string.shuffle),
@@ -1086,7 +1113,7 @@ private fun DesktopPlayer(
                 }
                 IconButton(onClick = {
                     controls?.cycleRepeat()
-                }, enabled = "repeat" in player.capabilities) {
+                }, enabled = controls != null && "repeat" in player.capabilities) {
                     Glyph(
                         "repeat",
                         stringResource(Res.string.repeat),
@@ -1136,7 +1163,7 @@ private fun CatalogRow(
                     },
                 ).background(panel),
         )
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(info.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (info.subtitle.isNotBlank()) Text(info.subtitle, color = muted, style = MaterialTheme.typography.bodySmall)
         }
@@ -1175,7 +1202,7 @@ private fun PlayButton(
     size: Int,
     color: Color = accent,
 ) {
-    Surface(onClick = click, enabled = enabled, shape = RoundedCornerShape(14.dp), color = color, modifier = Modifier.size(size.dp)) {
+    Surface(onClick = click, enabled = enabled, shape = CircleShape, color = color, modifier = Modifier.size(size.dp)) {
         Box(contentAlignment = Alignment.Center) {
             Glyph(
                 if (playing) "pause" else "play",
@@ -1209,9 +1236,8 @@ private fun Navigation(
             )
         Column(
             modifier
-                .clickable {
-                    select(target)
-                }.padding(vertical = 12.dp),
+                .semantics { selected = page == target }
+                .clickable(role = Role.Tab) { select(target) }.padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {

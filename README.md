@@ -1,6 +1,6 @@
 # MetroFlow for MetroFuse
 
-MetroFlow 1.0.1 is an alternate interface for MetroFuse with navy surfaces, amber accents and artwork shelves. Desktop adds a library sidebar, a search bar, and centered playback controls. Mobile uses icon navigation, quick access cards, and a compact player. Both layouts use MetroFuse?s playback, library and catalog.
+MetroFlow Native 1.0.2 is a Spotify-style interface with black surfaces, green accents and artwork shelves. The JavaScript package remains at 1.0.1. Desktop adds a library sidebar, a search bar, and centered playback controls. Mobile uses icon navigation, quick access cards, and a compact player. Both layouts use MetroFuse?s playback, library and catalog.
 
 This independent repository contains the JavaScript interface in `javascript/` and Compose interface in `native/`. Both originate from [MetroFuse](https://github.com/956tris/MetroFuse); see [SOURCE](SOURCE), each plugin's provenance notice and [LICENSE](LICENSE) (GPL-3.0).
 
@@ -38,3 +38,5 @@ python tests/check_native_package.py
 All three distributable files are written to `build/outputs/plugins/`. Native code targets JVM 21. Android packaging dexes the same plugin code for min API 24, links its plugin manifest/assets and zipaligns the unsigned container. API, SDK, Compose, coroutines and serialization dependencies are compile-only; host classes and resource catalogs are not bundled.
 
 The Node contract checks cover JavaScript paging, stale asynchronous responses, playback actions, event disposal and UI tree limits. They use synthetic test fixtures only. The Python packaging check inspects APK entries and DEX class definitions to reject bundled host/runtime classes. Native packaging checks do not replace installing and exercising the interface in the matching desktop and Android host.
+
+Native 1.0.2 adds desktop Home/Search/Library navigation, search-on-focus, provider selection through ui.frontends/v1, collection Back returning to its origin, mobile Next, and a scrollable expanded player for short windows. The source picker requires MetroFuse KMP Beta or a host with that service. Build and package checks do not verify live provider sign-in or playback.
