@@ -155,6 +155,12 @@ private fun HomeItem.info(): CollectionInfo? =
         else -> null
     }
 
+internal fun quickHomeItems(items: List<HomeItem>): List<HomeItem> =
+    items
+        .filter { it.info() != null }
+        .distinctBy { it.info()?.let { info -> info.kind to info.id } }
+        .take(8)
+
 @Composable
 private fun MetroFlow(
     ui: UiContext,
@@ -441,7 +447,7 @@ private fun MetroFlow(
                                                         },
                                                 )
                                             }.filter { it.items.isNotEmpty() }
-                                    val quick = filtered.flatMap { it.items }.distinctBy { it.info()?.id }.take(8)
+                                    val quick = quickHomeItems(filtered.flatMap { it.items })
                                     if (quick.isNotEmpty()) {
                                         item {
                                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -478,7 +484,7 @@ private fun MetroFlow(
                                             }
                                         }
                                     }
-                                    if (shelves.isEmpty()) {
+                                    if (filtered.isEmpty()) {
                                         item {
                                             Text(stringResource(Res.string.empty_home), color = muted)
                                             TextButton(onClick = { ui.navigate("plugins") }) { Text(stringResource(Res.string.plugins)) }
@@ -975,8 +981,7 @@ private fun DesktopHeader(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         IconButton(onClick = home) { Glyph("brand", stringResource(Res.string.brand), Modifier.size(28.dp), accent) }
-        Text(stringResource(Res.string.brand), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-        Surface(onClick = home, shape = RoundedCornerShape(12.dp), color = panel, modifier = Modifier.size(48.dp)) {
+        Surface(onClick = home, shape = CircleShape, color = panel, modifier = Modifier.size(48.dp)) {
             Box(contentAlignment = Alignment.Center) { Glyph("home", stringResource(Res.string.home), Modifier.size(24.dp)) }
         }
         SearchInput(query, search, Modifier.weight(1f).widthIn(max = 440.dp), openSearch)
@@ -1004,7 +1009,7 @@ private fun SearchInput(
     Row(
         modifier
             .height(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(CircleShape)
             .background(panel)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
