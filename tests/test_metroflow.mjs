@@ -5,14 +5,14 @@ import vm from 'node:vm'
 // Exercise the JavaScript/host contract without requiring a platform UI.
 const source = readFileSync(new URL('../javascript/index.js', import.meta.url), 'utf8')
 const tracks = Array.from({length: 180}, (_, i) => ({id: `local:${i}`, title: `Song ${i}`, artist: 'Artist', album: '', duration: 180000, artwork: i % 2 ? 'https://i.scdn.co/image/fixture' : 'file:///C:/Music/Album%20art.jpg'}))
-const actions = new Map(), events = new Map(), calls = [], pages = []
+const actions = new Map(), events = new Map(), calls = [], pages = [], uiTrees = new Map()
 let tree, patch, pendingSearch, disposed = 0
 const host = {
   playerState: () => ({track: tracks[0], playing: false, position: 0, queue: tracks}),
   playerCapabilities: () => ['toggle', 'previous', 'next', 'seek', 'playTracks', 'addToQueue', 'queueIndex'],
   action: (id, fn) => actions.set(id, fn),
   on: (id, fn) => { events.set(id, fn); return () => { events.delete(id); disposed++ } },
-  ui: (_, value) => {
+  ui: (point, value) => {
     let count = 0
     const ids = new Set()
     function walk(node, depth = 0) {
@@ -21,7 +21,9 @@ const host = {
       assert.ok(Object.values(node.props).every(value => typeof value === 'string'))
       node.children.forEach(child => walk(child, depth + 1))
     }
-    walk(value); tree = value
+    walk(value)
+    uiTrees.set(point, value)
+    if (point === 'ui.app') tree = value
   },
   patchMany: changes => { patch = changes },
   playTracks: async (list, index = 0) => calls.push(['playTracks', list, index]),
@@ -32,13 +34,19 @@ const host = {
   call: async (name, request) => {
     if (name === 'ui.home/v1') return {shelves: Array.from({length: 24}, () => ({title: 'Shelf', items: tracks.slice(0, 20).map(track => ({track}))}))}
     if (name === 'ui.search/v1') return new Promise(resolve => { pendingSearch = resolve })
+    if (name === 'ui.frontends/v1') return {selected: request?.select || '', sources: [{id: 'metrofuse.spotify', title: 'Spotify'}]}
+    if (name === 'ui.settings/v1') return {settings: [{key: 'audio.quality', title: 'Audio quality', category: 'Audio', type: 'select', value: 'AUTO', options: ['AUTO', 'HIGH']}]}
+    if (name === 'ui.plugins/v1') return {plugins: [{id: 'metrofuse.spotify', name: 'Spotify', version: '1.0.3', author: 'MetroFuse', state: 'Enabled', enabled: true}], uiApps: [{id: 'dev.metrofuse.metroflow.javascript', name: 'MetroFlow', active: true}]}
     return {item: {tracks}}
   }
 }
 const context = vm.createContext({})
 vm.runInContext(source, context)
-await context.plugin.init(host)
+const instance = await context.plugin.init(host)
 await new Promise(resolve => setImmediate(resolve))
+assert.ok(uiTrees.has('ui.app'))
+assert.ok(uiTrees.has('ui.settings'))
+assert.ok(uiTrees.has('ui.plugins'))
 assert.equal(find(tree, 'wide-sidebar-art-0').props.url, tracks[0].artwork)
 assert.equal(find(tree, 'compact-quick-0-0-art').props.url, tracks[0].artwork)
 assert.equal(find(tree, 'compact-quick-0-0-art').props.height, '56')
@@ -75,8 +83,8 @@ assert.ok(allText.includes('Your library'))
 assert.ok(!allText.includes('Song 100'))
 await actions.get('settings')()
 assert.deepEqual(calls.at(-1), ['navigate', 'settings'])
-context.plugin.dispose()
-assert.equal(disposed, 3)
+instance.dispose()
+assert.equal(disposed, 4)
 assert.equal(events.size, 0)
 
 // A slow provider must not hold plugin activation behind network requests.
@@ -88,12 +96,12 @@ const slowHost = {...host,
 }
 const slowContext = vm.createContext({})
 vm.runInContext(source, slowContext)
-await slowContext.plugin.init(slowHost)
+const slowInstance = await slowContext.plugin.init(slowHost)
 assert.ok(startupRenders > 0)
-slowContext.plugin.dispose()
+slowInstance.dispose()
 const rendersAtDispose = startupRenders
 finishSource({})
 finishLibrary(tracks)
 await new Promise(resolve => setImmediate(resolve))
 assert.equal(startupRenders, rendersAtDispose)
-console.log('MetroFlow host contract checks passed (paging, stale responses, playback, disposal, tree limits, artwork sizing, nonblocking activation).')
+console.log('MetroFlow host contract checks passed (Spotify theme, ui.settings/ui.plugins, paging, stale responses, playback, disposal, tree limits, artwork sizing, nonblocking activation).')

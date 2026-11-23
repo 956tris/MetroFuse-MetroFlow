@@ -1,5 +1,5 @@
 {
-  "id": "dev.metrofuse.metroflow.native", "name": "MetroFlow Native", "version": "1.0.2",
+  "id": "dev.metrofuse.metroflow.native", "name": "MetroFlow Native", "version": "1.0.3",
   "author": "MetroFuse", "api": "1.1.0", "runtime": "kotlin", "platforms": ["desktop", "android"],
   "entryClass": "dev.metrofuse.metroflow.MetroFlowPlugin",
   "composeAbi": "kotlin-2.4.21_compose-1.13.0-beta02_api-1.1.0",
